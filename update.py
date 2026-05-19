@@ -40,15 +40,13 @@ def scarica_siti_da_link(opener, url):
         return ""
 
 if __name__ == "__main__":
-    print("🐺 [LUPOBOT SUPERCHARGED] Estrazione globale siti di streaming in corso... 🐺")
+    print("🐺 [LUPOBOT] Estrazione globale e pulizia siti Torrent/Magnet... 🐺")
     
-    # Abbiamo allargato la lista inserendo TUTTE le principali sorgenti italiane esistenti
     sorgenti = [
         "https://www.epgitalia.tv/wp-content/uploads/lista_domini.txt",
         "https://pastebin.com/raw/KgQ4jTy6",
         "https://dub.sh/t3kCLOUD-Veezie-Lista-Auto",
         "https://raw.githubusercontent.com/webassistance/lista-veezie/main/lista_domini.txt",
-        # Nuove sorgenti aggiunte per catturare TUTTI gli altri siti alternativi in HD
         "https://raw.githubusercontent.com/orandodm/veezie-channel-list/main/canali.txt",
         "https://raw.githubusercontent.com/ZzZ-Simone-ZzZ/Lista-Veezie/main/lista_canali.txt",
         "https://pastebin.com/raw/2b7X6g9F"
@@ -63,9 +61,8 @@ if __name__ == "__main__":
         testo_del_link = scarica_siti_da_link(lettore_url, url)
         
         if testo_del_link:
-            # Cattura tutti i link che iniziano con http o https
             siti_trovati = re.findall(r'(https?://[^\s,\"\']+)', testo_del_link)
-            print(f"   🔹 Estratti {len(siti_trovati)} canali streaming per film e serie.")
+            print(f"   🔹 Estratti {len(siti_trovati)} canali streaming.")
             tutti_i_siti_unici.update(siti_trovati)
         
         time.sleep(1) 
@@ -74,16 +71,27 @@ if __name__ == "__main__":
     for s in sorgenti:
         tutti_i_siti_unici.discard(s)
 
+    # ⚠️ FILTRO INTELLIGENTE: Elimina i siti basati su Torrent e Magnet
+    PAROLE_BLOCCATE = ["1337x", "rargb", "rarbg", "torrent", "magnet", "yts", "limetorrents", "thepiratebay"]
+    siti_filtrati = set()
+    
+    for sito in tutti_i_siti_unici:
+        sito_lower = sito.lower()
+        # Se il sito contiene una delle parole collegate ai torrent, viene scartato
+        if any(parola in sito_lower for parola in PAROLE_BLOCCATE):
+            continue
+        siti_filtrati.add(sito)
+
     # 2. SALVATAGGIO E GENERAZIONE LINK PER VEEZIE
     file_uscita = "lista_del_lupo.txt"
-    if tutti_i_siti_unici:
+    if siti_filtrati:
         with open(file_uscita, "w", encoding="utf-8") as f:
-            for sito in sorted(tutti_i_siti_unici):
+            for sito in sorted(siti_filtrati):
                 f.write(sito + "\n")
         
         print(f"\n📊 FUSIONE TOTALE COMPLETATA!")
-        print(f"   -> Tutti gli altri siti trovati e uniti (senza doppioni): {len(tutti_i_siti_unici)}")
-        print(f"🏆 SUCCESS: Aggiornato file '{file_uscita}' con tutti i siti italiani!")
+        print(f"   -> Canali salvati (Siti Torrent/Magnet rimossi con successo): {len(siti_filtrati)}")
+        print(f"🏆 SUCCESS: Aggiornato file '{file_uscita}'!")
         
         # Genera il link automatico leggendo i tuoi dati GitHub
         repo = os.getenv("GITHUB_REPOSITORY")
