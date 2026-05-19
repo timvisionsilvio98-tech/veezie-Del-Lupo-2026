@@ -1,13 +1,15 @@
 import urllib.request
+import urllib.parse
 import urllib.error
 import re
 import ssl
 import time
 import os
+import json
 
 HEADERS = [
     ('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'),
-    ('Accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'),
+    ('Accept', 'application/json,text/html;q=0.9,*/*;q=0.8'),
     ('Connection', 'keep-alive')
 ]
 
@@ -15,11 +17,9 @@ def ottieni_opener_senza_ssl():
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    
     https_handler = urllib.request.HTTPSHandler(context=ctx)
     redirect_handler = urllib.request.HTTPRedirectHandler()
     cookie_handler = urllib.request.HTTPCookieProcessor()
-    
     opener = urllib.request.build_opener(https_handler, redirect_handler, cookie_handler)
     opener.addheaders = HEADERS
     return opener
@@ -29,18 +29,43 @@ def scarica_siti_da_link(opener, url):
         req = urllib.request.Request(url)
         with opener.open(req, timeout=15) as response:
             return response.read().decode('utf-8', errors='ignore')
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            print(f"   ⚠️ Nota: {url} ha temporaneamente limitato la richiesta (Errore 429). Salto.")
-        else:
-            print(f"   ⚠️ Impossibile leggere la sorgente: {url} (Errore HTTP {e.code})")
-        return ""
-    except Exception as e:
-        print(f"   ⚠️ Errore di connessione per: {url} ({e})")
+    except Exception:
         return ""
 
+def cerca_su_provider_libero(opener, query):
+    """Interroga un'istanza pubblica e libera di SearXNG per trovare nuovi siti senza blocchi corporativi"""
+    siti_trovati = set()
+    print(f"🔍 Ricerca su Provider Libero (SearXNG) per: '{query}'...")
+    
+    # Utilizziamo un'istanza pubblica nota di SearXNG che espone le API in JSON
+    url_provider = f"https://searx.space/search?q={urllib.parse.quote(query)}&format=json"
+    
+    try:
+        req = urllib.request.Request(url_provider)
+        with opener.open(req, timeout=12) as response:
+            dati = json.loads(response.read().decode('utf-8', errors='ignore'))
+            if "results" in dati:
+                for risultato in dati["results"]:
+                    if "url" in risultato:
+                        siti_trovati.add(risultato["url"])
+    except Exception as e:
+        # Se la prima istanza è temporaneamente offline, proviamo un'alternativa comune
+        try:
+            url_alternativo = f"https://baresearch.org/search?q={urllib.parse.quote(query)}&format=json"
+            req = urllib.request.Request(url_alternativo)
+            with opener.open(req, timeout=10) as response:
+                dati = json.loads(response.read().decode('utf-8', errors='ignore'))
+                if "results" in dati:
+                    for risultato in dati["results"]:
+                        if "url" in risultato:
+                            siti_trovati.add(risultato["url"])
+        except Exception:
+            print("   ⚠️ Il provider libero non ha risposto in tempo. Salto la ricerca web.")
+            
+    return siti_trovati
+
 if __name__ == "__main__":
-    print("🐺 [LUPOBOT] Estrazione globale e pulizia siti Torrent/Magnet... 🐺")
+    print("🐺 [LUPOBOT + SEARXNG] Unione liste storiche e scansione web libera... 🐺")
     
     sorgenti = [
         "https://www.epgitalia.tv/wp-content/uploads/lista_domini.txt",
@@ -55,45 +80,59 @@ if __name__ == "__main__":
     tutti_i_siti_unici = set()
     lettore_url = ottieni_opener_senza_ssl()
     
-    # 1. SCARICAMENTO E UNIONE GLOBALE
+    # 1. FASE DI ESTRAZIONE DALLE LISTE FISSE
     for i, url in enumerate(sorgenti, 1):
-        print(f"[{i}/{len(sorgenti)}] Analisi sorgente: {url}")
+        print(f"[{i}/{len(sorgenti)}] Estrazione da lista: {url}")
         testo_del_link = scarica_siti_da_link(lettore_url, url)
-        
         if testo_del_link:
             siti_trovati = re.findall(r'(https?://[^\s,\"\']+)', testo_del_link)
-            print(f"   🔹 Estratti {len(siti_trovati)} canali streaming.")
             tutti_i_siti_unici.update(siti_trovati)
+        time.sleep(0.5) 
         
-        time.sleep(1) 
-        
-    # Pulizia di sicurezza: evita che le sorgenti stesse finiscano dentro Veezie
+    # 2. FASE DI RICERCA LIVE SUL PROVIDER LIBERO
+    chiavi_ricerca = [
+        "migliori siti streaming film gratis",
+        "serie tv streaming italia"
+    ]
+    
+    for query in chiavi_ricerca:
+        risultati_web = cerca_su_provider_libero(lettore_url, query)
+        for link in risultati_web:
+            # Pulisce l'URL per estrarre solo la radice del sito (es. https://nome-nuovo-sito.com)
+            match = re.match(r'(https?://[^/]+)', link)
+            if match:
+                tutti_i_siti_unici.add(match.group(1))
+        time.sleep(1)
+
+    # Rimozione delle liste sorgenti di partenza per evitare disordine su Veezie
     for s in sorgenti:
         tutti_i_siti_unici.discard(s)
 
-    # ⚠️ FILTRO INTELLIGENTE: Elimina i siti basati su Torrent e Magnet
-    PAROLE_BLOCCATE = ["1337x", "rargb", "rarbg", "torrent", "magnet", "yts", "limetorrents", "thepiratebay"]
+    # ⚠️ BLOCCO DI SICUREZZA: Scarta i siti Torrent/Magnet rilevati e i motori stessi
+    PAROLE_BLOCCATE = [
+        "1337x", "rargb", "rarbg", "torrent", "magnet", "yts", "limetorrents", 
+        "thepiratebay", "searx", "wikipedia", "github", "google", "facebook"
+    ]
     siti_filtrati = set()
     
     for sito in tutti_i_siti_unici:
         sito_lower = sito.lower()
-        # Se il sito contiene una delle parole collegate ai torrent, viene scartato
         if any(parola in sito_lower for parola in PAROLE_BLOCCATE):
             continue
         siti_filtrati.add(sito)
 
-    # 2. SALVATAGGIO E GENERAZIONE LINK PER VEEZIE
+    # 3. SALVATAGGIO FINALE E GENERAZIONE LINK VEEZIE
     file_uscita = "lista_del_lupo.txt"
     if siti_filtrati:
         with open(file_uscita, "w", encoding="utf-8") as f:
             for sito in sorted(siti_filtrati):
                 f.write(sito + "\n")
         
-        print(f"\n📊 FUSIONE TOTALE COMPLETATA!")
-        print(f"   -> Canali salvati (Siti Torrent/Magnet rimossi con successo): {len(siti_filtrati)}")
+        print(f"\n📊 ELABORAZIONE COMPLETATA CON SUCCESSO!")
+        print(f"   -> Siti totali pronti (Liste + Ricerca Libera): {len(siti_filtrati)}")
         print(f"🏆 SUCCESS: Aggiornato file '{file_uscita}'!")
         
-        # Genera il link automatico leggendo i tuoi dati GitHub
+        # Output automatico del link finale da copiare su Veezie
         repo = os.getenv("GITHUB_REPOSITORY")
         if repo:
             link_veezie = f"https://raw.githubusercontent.com/{repo}/main/{file_uscita}"
@@ -101,9 +140,5 @@ if __name__ == "__main__":
             print("🔗 COPIA QUESTO LINK E METTILO NELLA LISTA AUTOMATICA DI VEEZIE:")
             print(f"👉 {link_veezie}")
             print("═"*60 + "\n")
-        else:
-            print(f"\nℹ️ (In locale) Su GitHub qui vedrai il link pronto per Veezie.")
-            
     else:
-        print("❌ Nessun link trovato analizzando le sorgenti.")
-        
+        print("❌ Nessun link valido estratto.")
