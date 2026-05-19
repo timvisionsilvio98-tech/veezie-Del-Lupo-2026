@@ -4,7 +4,6 @@ import urllib.error
 import re
 import ssl
 import time
-import json
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 
@@ -12,12 +11,10 @@ HEADERS = {
     'User-Agent': USER_AGENT,
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     'Accept-Language': 'it-IT,it;q=0.9',
-    'X-Forwarded-For': '151.40.84.112',
-    'X-Real-IP': '151.40.84.112',
     'Connection': 'keep-alive'
 }
 
-# 1. LIVELLI DI SORGENTI FISSE (Aggregazione standard)
+# Il paniere delle migliori liste automatiche stabili da fondere insieme
 LISTE_SORGENTI = [
     "https://raw.githubusercontent.com/LuFrAnNa/Veezie/main/Lista",
     "https://raw.githubusercontent.com/AlexS7/Lista-Veezie/main/lista.txt",
@@ -31,7 +28,6 @@ LISTE_SORGENTI = [
     "https://raw.githubusercontent.com/StreamIta/Streaming-Veezie/main/lista_automatica.txt"
 ]
 
-# 2. FILTRO DI SICUREZZA (Siti da scartare categoricamente)
 VIETATI = [
     "google", "youtube", "facebook", "instagram", "twitter", "github", "wikipedia", "amazon", "apple",
     "linkedin", "pinterest", "microsoft", "reddit", "telegram", "aranzulla", "mojeek", "bing", "yahoo"
@@ -43,117 +39,88 @@ def ottieni_contesto_ssl():
     ctx.verify_mode = ssl.CERT_NONE
     return ctx
 
-def simula_ricerca_api(query):
-    """
-    Modulo Esploratore: Simula la ricerca di nuove fonti sul web.
-    Usa una struttura JSON pulita per evitare i blocchi dei motori di ricerca tradizionali.
-    """
-    print(f"🔍 [Fase Esplorazione] Ricerca in corso per la query: '{query}'")
-    
-    # Struttura di simulazione dei risultati indicizzati da un motore di ricerca
-    risposta_mock = """
-    {
-        "results": [
-            {"url": "https://esempio-nuova-lista-aggiornata.org/links.txt"},
-            {"url": "https://segnalazioni-canali-test.click/lista"}
-        ]
-    }
-    """
-    try:
-        dati = json.loads(risposta_mock)
-        return [item["url"] for item in dati.get("results", [])]
-    except Exception:
-        return []
-
 def scarica_testo_lista(url):
-    """Scarica in modo sicuro il testo grezzo dalle liste sorgente conosciute."""
     try:
         req = urllib.request.Request(url, headers=HEADERS)
-        with urllib.request.urlopen(req, context=ottieni_contesto_ssl(), timeout=12) as response:
+        with urllib.request.urlopen(req, context=ottieni_contesto_ssl(), timeout=15) as response:
             return response.read().decode('utf-8', errors='ignore')
-    except Exception:
+    except Exception as e:
+        print(f"   ⚠️ Impossibile accedere alla sorgente: {url} -> {str(e)}")
         return ""
 
-def verifica_e_traccia_cambio_dominio(url):
-    """
-    Modulo Verificatore: Invia richieste HEAD, traccia i redirect 301/302 
-    verso nuove estensioni (.force, .click) ed elimina i siti offline.
-    """
-    try:
-        class SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
-            def redirect_request(self, req, fp, code, msg, hdrs, newurl):
-                return super().redirect_request(req, fp, code, msg, hdrs, newurl)
+def estrai_domini_da_testo(testo):
+    """Estrattore universale: trova domini validi anche se camuffati nel testo o senza http"""
+    domini_trovati = set()
+    # Trova pattern che assomigliano a domini (es: nome.estensione)
+    pattern = r'(?:https?://)?(?:www\.)?([a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+)'
+    
+    for linea in testo.splitlines():
+        linea = linea.strip()
+        if not linea or any(v in linea.lower() for v in VIETATI):
+            continue
+            
+        match = re.search(pattern, linea)
+        if match:
+            dominio = match.group(1).lower()
+            # Evita falsi positivi basati su estensioni non web comuni nel testo
+            if "." in dominio and not dominio.endswith(('.txt', '.md', '.json', '.xml', '.png', '.jpg')):
+                if len(dominio.split('.')[-1]) >= 2:  # L'estensione deve avere almeno 2 caratteri (es. .cc, .com)
+                    domini_trovati.add(f"https://{dominio}")
+    return domini_trovati
 
-        opener = urllib.request.build_opener(SafeRedirectHandler)
+def verifica_e_traccia_cambio_dominio(url):
+    """Bussa al server con una richiesta rapida per convalidare lo stato o catturare il nuovo dominio"""
+    try:
         req = urllib.request.Request(url, headers=HEADERS, method='HEAD')
-        
-        with opener.open(req, context=ottieni_contesto_ssl(), timeout=5) as response:
+        with urllib.request.urlopen(req, context=ottieni_contesto_ssl(), timeout=6) as response:
             url_effettivo = response.geturl()
             netloc = urllib.parse.urlparse(url_effettivo).netloc.lower().replace("www.", "")
-            
             if netloc and not any(v in netloc for v in VIETATI):
-                nuovo_url = f"https://{netloc}"
-                if nuovo_url != url:
-                    print(f"   🔄 DOMINIO AGGIORNATO: {url} -> {nuovo_url}")
-                return nuovo_url
+                return f"https://{netloc}"
     except urllib.error.HTTPError as e:
-        # Se il sito risponde (anche con un blocco 403 o un errore 500), esiste ed è attivo.
+        # Se risponde con errore di protezione o server sovraccarico, il dominio è comunque attivo sul web
         if e.code in [403, 500, 503]:
             return url
     except Exception:
-        # Se va in timeout o genera errori di connessione (host non trovato), il sito è morto.
         pass
     return None
 
 if __name__ == "__main__":
-    print("🐺 LUPOBOT ACTIVATED: Inizio aggregazione, esplorazione e controllo domini... 🐺")
-    domini_grezzi = set()
+    print("🐺 LUPOBOT: Avvio aggregatore universale delle migliori liste... 🐺")
+    domini_accumulati = set()
     lista_finale_pulita = set()
     
-    # SOTTO-FASE A: Estrazione link dalle liste fisse note
-    print("\n📂 [1/3] Estrazione dati dalle liste automatiche conosciute...")
+    # 1. Raccolta globale e unione delle liste
+    print("\n📂 [1/2] Estrazione e unione dei link da tutte le liste automatiche...")
     for sorgente in LISTE_SORGENTI:
-        testo = scarica_testo_lista(sorgente)
-        if testo:
-            links = re.findall(r'(https?://[^\s,\"\']+)', testo)
-            vecchio_totale = len(domini_grezzi)
-            for l in links:
-                try:
-                    netloc = urllib.parse.urlparse(l).netloc.lower().replace("www.", "")
-                    if netloc and not any(v in netloc for v in VIETATI) and len(netloc) > 8:
-                        domini_grezzi.add(f"https://{netloc}")
-                except: pass
-            print(f"   -> Recuperati {len(domini_grezzi) - vecchio_totale} domini unici da: {sorgente}")
-        time.sleep(0.3)
+        contenuto = scarica_testo_lista(sorgente)
+        if contenuto:
+            estratti = estrai_domini_da_testo(contenuto)
+            vecchio_totale = len(domini_accumulati)
+            domini_accumulati.update(estratti)
+            print(f"   -> Estratti {len(domini_accumulati) - vecchio_totale} nuovi canali unici da: {sorgente}")
+        time.sleep(0.4)
             
-    # SOTTO-FASE B: Esplorazione tramite motore di ricerca inserendo la parola chiave
-    print("\n🚀 [2/3] Scouting sul Web per intercettare nuove liste...")
-    nuove_fonti = simula_ricerca_api("lista automatica veezie")
-    for fonte in nuove_fonti:
-        try:
-            netloc = urllib.parse.urlparse(fonte).netloc.lower().replace("www.", "")
-            if netloc and not any(v in netloc for v in VIETATI):
-                domini_grezzi.add(f"https://{netloc}")
-        except: pass
-
-    print(f"\n📊 TOTALIZZATO: {len(domini_grezzi)} domini complessivi accumulati nel setaccio.")
+    print(f"\n📊 TOTALIZZATO: {len(domini_accumulati)} domini unici pronti per il controllo stabilità.")
     
-    # SOTTO-FASE C: Controllo dello stato di salute dei server e cattura estensioni aggiornate
-    if domini_grezzi:
-        print("\n🧬 [3/3] Controllo di connettività e tracciamento dei domini trasferiti...")
-        for sito in sorted(domini_grezzi):
+    # 2. Controllo filtri e selezione finale
+    if domini_accumulati:
+        print("\n🧬 [2/2] Verifica connettività e tracciamento delle nuove estensioni...")
+        for i, sito in enumerate(sorted(domini_accumulati), 1):
             url_valido = verifica_e_traccia_cambio_dominio(sito)
             if url_valido:
                 lista_finale_pulita.add(url_valido)
-            time.sleep(0.2) # Pausa di cortesia anti-ban
+            if i % 15 == 0 or i == len(domini_accumulati):
+                print(f"   ...elaborazione: {i}/{len(domini_accumulati)} domini verificati...")
+            time.sleep(0.15)
             
-        print(f"\n🏆 CONCLUSO: Abbiamo filtrato {len(lista_finale_pulita)} canali stabili e puliti.")
+        print(f"\n🏆 COMPILAZIONE COMPLETATA: Ristretti {len(lista_finale_pulita)} canali di qualità pronti all'uso.")
         
-        # Salvataggio su file finale
+        # Scrittura fisica del file finale nel tuo repository
         with open("lista_del_lupo.txt", "w", encoding="utf-8") as f:
             for s in sorted(lista_finale_pulita):
                 f.write(s + "\n")
-        print("💾 File lista_del_lupo.txt compilato e pronto per il commit!")
+        print("💾 Il file 'lista_del_lupo.txt' è stato sovrascritto e aggiornato con la super-lista!")
     else:
-        print("❌ Errore: Nessun dominio estratto dalle fonti.")
+        print("❌ Errore critico: Nessun dato estratto. Controllare le connessioni delle liste sorgenti.")
         
