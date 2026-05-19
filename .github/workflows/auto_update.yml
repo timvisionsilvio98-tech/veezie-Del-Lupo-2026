@@ -1,29 +1,34 @@
 name: Aggiornamento Automatico Lista del Lupo
+
 on:
+  workflow_dispatch: # Ti permette di farlo partire ancora a mano quando vuoi
   schedule:
-    - cron: '0 3 * * *'
-  workflow_dispatch:
+    # Si attiva automaticamente ogni giorno alle 02:00 UTC (le 03:00 in Italia)
+    - cron: '0 2 * * *'
 
 jobs:
-  run-script:
+  build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-    - uses: actions/checkout@v3
-    - name: Configura Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.x'
-    - name: Installa Librerie
-      run: pip install requests beautifulsoup4
-    - name: Esegui Bot Lupo
-      run: python update.py
-    - name: Salva la Lista del Lupo su GitHub
-      run: |
-        git config --global user.name 'LupoBot'
-        git config --global user.email 'lupo@veezie.com'
-        git add lista_del_lupo.txt
-        git commit -m "🐺 La lista del lupo si è aggiornata" || exit 0
-        git push
-        
+      - name: Accedi al codice
+        uses: actions/checkout@v3
+
+      - name: Configura Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Installa i componenti necessari
+        run: pip install requests beautifulsoup4
+
+      - name: Avvia lo Scanner Supremo
+        run: python update.py
+
+      - name: Salva le modifiche sulla lista
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add lista_del_lupo.txt
+          git commit -m "Aggiornamento automatico della lista (LupoBot)" || exit 0
+          git push
+          
