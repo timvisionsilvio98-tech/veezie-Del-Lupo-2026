@@ -9,7 +9,7 @@ CHIAVI_RICERCA = ["film streaming gratis senza registrazione", "guardare serie t
 SITI_VIETATI = ["netflix", "primevideo", "disneyplus", "chili", "rakuten", "raiplay", "mediaset", "sky", "nowtv", "paramountplus", "google", "youtube", "wikipedia", "facebook", "instagram", "twitter", "tiktok", "mymovies", "movieplayer", "imdb", "comingsoon", "amazon", "apple", "github"]
 
 def scansiona_il_web():
-    sites = set()
+    siti = set()
     for q in CHIAVI_RICERCA:
         try:
             r = requests.get(f"https://html.duckduckgo.com/html/?q={q.replace(' ', '+')}", headers=HEADERS, timeout=10)
@@ -18,10 +18,11 @@ def scansiona_il_web():
                     m = re.search(r'uddg=(https?://[^&]+)', a['href'])
                     if m:
                         dom = f"{urlparse(requests.utils.unquote(m.group(1))).scheme}://{urlparse(requests.utils.unquote(m.group(1))).netloc}".lower().replace("www.", "")
-                        if not any(v in dom for v in SITI_VIETATI): sites.add(dom)
+                        if not any(v in dom for v in SITI_VIETATI): 
+                            siti.add(dom)
             time.sleep(2)
         except: pass
-    return sites
+    return siti
 
 def filtra_canali(lista):
     validi = []
@@ -41,4 +42,3 @@ if __name__ == "__main__":
     canali = filtra_canali(scansiona_il_web())
     with open("lista_del_lupo.txt", "w", encoding="utf-8") as f:
         for c in canali: f.write(c + "\n")
-          
