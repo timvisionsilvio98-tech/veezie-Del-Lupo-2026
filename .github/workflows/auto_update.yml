@@ -1,0 +1,29 @@
+name: Aggiornamento Automatico Lista del Lupo
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v3
+    - name: Configura Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.x'
+    - name: Installa Librerie
+      run: pip install requests beautifulsoup4
+    - name: Esegui Bot Lupo
+      run: python update.py
+    - name: Salva la Lista del Lupo su GitHub
+      run: |
+        git config --global user.name 'LupoBot'
+        git config --global user.email 'lupo@veezie.com'
+        git add lista_del_lupo.txt
+        git commit -m "🐺 La lista del lupo si è aggiornata" || exit 0
+        git push
+        
