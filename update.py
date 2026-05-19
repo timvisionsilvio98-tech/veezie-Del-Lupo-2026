@@ -27,45 +27,53 @@ def ottieni_opener_senza_ssl():
 def scarica_siti_da_link(opener, url):
     try:
         req = urllib.request.Request(url)
-        with opener.open(req, timeout=15) as response:
+        with opener.open(req, timeout=10) as response:
             return response.read().decode('utf-8', errors='ignore')
     except Exception:
         return ""
 
-def cerca_su_provider_libero(opener, query):
-    """Interroga un'istanza pubblica e libera di SearXNG per trovare nuovi siti senza blocchi corporativi"""
+def cerca_su_primo_funzionante(opener, query):
+    """Trova il primo provider che risponde e prende i link delle pagine/guide allo streaming"""
     siti_trovati = set()
-    print(f"🔍 Ricerca su Provider Libero (SearXNG) per: '{query}'...")
     
-    # Utilizziamo un'istanza pubblica nota di SearXNG che espone le API in JSON
-    url_provider = f"https://searx.space/search?q={urllib.parse.quote(query)}&format=json"
+    istanze_provider = {
+        "SearXNG (Rhscz)": f"https://search.rhscz.eu/search?q={urllib.parse.quote(query)}&format=json",
+        "BareSearch": f"https://baresearch.org/search?q={urllib.parse.quote(query)}&format=json",
+        "DuckDuckGo API": f"https://api.duckduckgo.com/?q={urllib.parse.quote(query)}&format=json&no_html=1",
+        "SearXNG (Be)": f"https://searx.be/search?q={urllib.parse.quote(query)}&format=json"
+    }
     
-    try:
-        req = urllib.request.Request(url_provider)
-        with opener.open(req, timeout=12) as response:
-            dati = json.loads(response.read().decode('utf-8', errors='ignore'))
-            if "results" in dati:
-                for risultato in dati["results"]:
-                    if "url" in risultato:
-                        siti_trovati.add(risultato["url"])
-    except Exception as e:
-        # Se la prima istanza è temporaneamente offline, proviamo un'alternativa comune
+    print(f"\n🔍 [RICERCA WEB] Cerco pagine di riferimento per: '{query}'")
+    print("-" * 60)
+    
+    for nome, url in istanze_provider.items():
         try:
-            url_alternativo = f"https://baresearch.org/search?q={urllib.parse.quote(query)}&format=json"
-            req = urllib.request.Request(url_alternativo)
-            with opener.open(req, timeout=10) as response:
+            req = urllib.request.Request(url)
+            with opener.open(req, timeout=5) as response:
                 dati = json.loads(response.read().decode('utf-8', errors='ignore'))
+                
                 if "results" in dati:
-                    for risultato in dati["results"]:
-                        if "url" in risultato:
-                            siti_trovati.add(risultato["url"])
-        except Exception:
-            print("   ⚠️ Il provider libero non ha risposto in tempo. Salto la ricerca web.")
+                    for r in dati["results"]:
+                        if "url" in r:
+                            siti_trovati.add(r["url"])
+                elif "RelatedTopics" in dati:
+                    for topic in dati["RelatedTopics"]:
+                        if "FirstURL" in topic:
+                            siti_trovati.add(topic["FirstURL"])
             
+            if siti_trovati:
+                print(f"   🟢 {nome} HA RISPOSTO! Trovate {len(siti_trovati)} pagine/guide utili. Inizio a estrarre i siti da lì dentro.")
+                break 
+            else:
+                print(f"   🟡 {nome}: Nessun risultato utile. Provo il successivo...")
+        except Exception:
+            continue
+            
+    print("-" * 60)
     return siti_trovati
 
 if __name__ == "__main__":
-    print("🐺 [LUPOBOT + SEARXNG] Unione liste storiche e scansione web libera... 🐺")
+    print("🐺 [LUPOBOT DEEP EXTRACTOR] Unione liste e scansione interna delle pagine web... 🐺")
     
     sorgenti = [
         "https://www.epgitalia.tv/wp-content/uploads/lista_domini.txt",
@@ -80,38 +88,61 @@ if __name__ == "__main__":
     tutti_i_siti_unici = set()
     lettore_url = ottieni_opener_senza_ssl()
     
-    # 1. FASE DI ESTRAZIONE DALLE LISTE FISSE
+    # 1. ESTRAZIONE DALLE LISTE FISSE DELLA COMMUNITY
+    print("\n📦 [FASE 1] Lettura dei canali dalle liste fisse...")
     for i, url in enumerate(sorgenti, 1):
-        print(f"[{i}/{len(sorgenti)}] Estrazione da lista: {url}")
         testo_del_link = scarica_siti_da_link(lettore_url, url)
         if testo_del_link:
             siti_trovati = re.findall(r'(https?://[^\s,\"\']+)', testo_del_link)
             tutti_i_siti_unici.update(siti_trovati)
-        time.sleep(0.5) 
         
-    # 2. FASE DI RICERCA LIVE SUL PROVIDER LIBERO
+    # 2. RICERCA LIVE ED ESTRAZIONE MIRATA "DA DENTRO" LE PAGINE
+    print("\n🌐 [FASE 2] Ricerca web ed estrazione siti interni...")
     chiavi_ricerca = [
-        "migliori siti streaming film gratis",
-        "serie tv streaming italia"
+        "lista siti streaming film gratis italia",
+        "nuovi siti serie tv streaming"
     ]
     
+    pagine_guide = set()
     for query in chiavi_ricerca:
-        risultati_web = cerca_su_provider_libero(lettore_url, query)
-        for link in risultati_web:
-            # Pulisce l'URL per estrarre solo la radice del sito (es. https://nome-nuovo-sito.com)
-            match = re.match(r'(https?://[^/]+)', link)
-            if match:
-                tutti_i_siti_unici.add(match.group(1))
-        time.sleep(1)
+        pagine_guide.update(cerca_su_primo_funzionante(lettore_url, query))
+    
+    # Entra dentro le singole pagine trovate per prendere i veri siti di streaming elencati
+    if pagine_guide:
+        print(f"\n🚀 [DEEP EXTRACTION] Scansiono l'interno delle pagine trovate per inserire i siti consigliati...")
+        # Limite a 6 pagine per non appesantire troppo GitHub Actions
+        for idx, url_pagina in enumerate(list(pagine_guide)[:6], 1):
+            print(f"   [{idx}] Analizzo l'articolo: {url_pagina}")
+            testo_html = scarica_siti_da_link(lettore_url, url_pagina)
+            
+            if testo_html:
+                # Trova tutti i link ipertestuali presenti nel testo della pagina
+                link_scovati = re.findall(r'(https?://[^\s,\"\']+)', testo_html)
+                siti_inseriti_da_qui = 0
+                
+                for link in link_scovati:
+                    # Isola il dominio pulito (es: https://sito-streaming.click)
+                    match_dominio = re.match(r'(https?://[^/]+)', link)
+                    if match_dominio:
+                        dominio_pulito = match_dominio.group(1)
+                        if dominio_pulito not in tutti_i_siti_unici:
+                            tutti_i_siti_unici.add(dominio_pulito)
+                            siti_inseriti_da_qui += 1
+                print(f"      🔹 Fatto! Inseriti {siti_inseriti_da_qui} nuovi siti di streaming estratti dal testo.")
+            else:
+                print("      ⚠️ Pagina protetta o non raggiungibile.")
+            time.sleep(0.5)
 
-    # Rimozione delle liste sorgenti di partenza per evitare disordine su Veezie
+    # Rimuove dall'elenco i link delle liste di partenza
     for s in sorgenti:
         tutti_i_siti_unici.discard(s)
 
-    # ⚠️ BLOCCO DI SICUREZZA: Scarta i siti Torrent/Magnet rilevati e i motori stessi
+    # ⚠️ FILTRO DI SICUREZZA RIFINITO: Taglia fuori Torrent, Magnet e siti civetta
     PAROLE_BLOCCATE = [
         "1337x", "rargb", "rarbg", "torrent", "magnet", "yts", "limetorrents", 
-        "thepiratebay", "searx", "wikipedia", "github", "google", "facebook"
+        "thepiratebay", "searx", "wikipedia", "github", "google", "facebook", 
+        "duckduckgo", "rhscz", "baresearch", "bing", "yahoo", "w3.org", "twitter",
+        "instagram", "amazon", "cloudflare", "schema.org", "wordpress", "tg24"
     ]
     siti_filtrati = set()
     
@@ -119,7 +150,9 @@ if __name__ == "__main__":
         sito_lower = sito.lower()
         if any(parola in sito_lower for parola in PAROLE_BLOCCATE):
             continue
-        siti_filtrati.add(sito)
+        # Salva solo domini reali e significativi
+        if len(sito) > 9 and "." in sito: 
+            siti_filtrati.add(sito)
 
     # 3. SALVATAGGIO FINALE E GENERAZIONE LINK VEEZIE
     file_uscita = "lista_del_lupo.txt"
@@ -128,11 +161,10 @@ if __name__ == "__main__":
             for sito in sorted(siti_filtrati):
                 f.write(sito + "\n")
         
-        print(f"\n📊 ELABORAZIONE COMPLETATA CON SUCCESSO!")
-        print(f"   -> Siti totali pronti (Liste + Ricerca Libera): {len(siti_filtrati)}")
-        print(f"🏆 SUCCESS: Aggiornato file '{file_uscita}'!")
+        print(f"\n📊 [FASE 3] PROCESSO DI FUSIONE E DEEP-SEARCH TERMINATO!")
+        print(f"   -> Canali unici pronti da inserire su Veezie: {len(siti_filtrati)}")
+        print(f"🏆 SUCCESS: Il tuo file '{file_uscita}' è aggiornato con tutte le novità online.")
         
-        # Output automatico del link finale da copiare su Veezie
         repo = os.getenv("GITHUB_REPOSITORY")
         if repo:
             link_veezie = f"https://raw.githubusercontent.com/{repo}/main/{file_uscita}"
@@ -140,5 +172,4 @@ if __name__ == "__main__":
             print("🔗 COPIA QUESTO LINK E METTILO NELLA LISTA AUTOMATICA DI VEEZIE:")
             print(f"👉 {link_veezie}")
             print("═"*60 + "\n")
-    else:
-        print("❌ Nessun link valido estratto.")
+            
