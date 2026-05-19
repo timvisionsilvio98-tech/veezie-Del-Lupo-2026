@@ -1,4 +1,4 @@
-name: Aggiornamento Manuale Lista
+name: auto_update
 
 on:
   workflow_dispatch:
@@ -7,25 +7,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Accedi al codice
+      - name: checkout repo content
         uses: actions/checkout@v3
 
-      - name: Configura Python
+      - name: setup python
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
 
-      - name: Installa componenti
-        run: pip install requests beautifulsoup4
+      - name: install python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests beautifulsoup4
 
-      - name: Avvia lo Scanner
+      - name: execute python script
         run: python update.py
 
-      - name: Salva modifiche
+      - name: commit files
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add lista_del_lupo.txt
-          git commit -m "Aggiornamento manuale" || exit 0
+          git commit -m "update data" || exit 0
           git push
           
