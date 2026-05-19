@@ -1,10 +1,7 @@
-name: Aggiornamento Automatico Lista del Lupo
+name: Aggiornamento Manuale Lista
 
 on:
-  workflow_dispatch: # Ti permette di farlo partire ancora a mano quando vuoi
-  schedule:
-    # Si attiva automaticamente ogni giorno alle 02:00 UTC (le 03:00 in Italia)
-    - cron: '0 2 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,17 +15,17 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Installa i componenti necessari
+      - name: Installa componenti
         run: pip install requests beautifulsoup4
 
-      - name: Avvia lo Scanner Supremo
+      - name: Avvia lo Scanner
         run: python update.py
 
-      - name: Salva le modifiche sulla lista
+      - name: Salva modifiche
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add lista_del_lupo.txt
-          git commit -m "Aggiornamento automatico della lista (LupoBot)" || exit 0
+          git commit -m "Aggiornamento manuale" || exit 0
           git push
           
