@@ -71,58 +71,85 @@ def estrai_e_pulisci(link):
 def ispeziona_sito_per_video(url):
     """Controlla l'HTML del sito: se ci sono player video, passa il test!"""
     try:
-        r = requests.get(url, headers=HEADERS, timeout=6)
+        r = requests.get(url, headers=HEADERS, timeout=5)
         if r.status_code == 200:
             html = r.text.lower()
             if any(impronta in html for impronta in IMPRONTE_VIDEO):
+                print(f"✅ CERTIFICATO: {url} contiene flussi video validi.")
                 return url
-    except: pass
+        print(f"❌ SCARTATO: {url} raggiungibile ma senza player video validi.")
+    except Exception as e:
+        print(f"⚠️ ERRORE CONNESSIONE: Impossibile testare {url}")
     return None
 
 def giga_scanner_totale():
     siti_potenziali = set()
     siti_certificati_cinema = set()
 
-    # FASE 1: Saccheggio totale di TUTTE le liste Veezie automatiche in Italia
+    print("🚀 FASE 1: Saccheggio delle liste Veezie pubbliche...")
     for url in LISTE_VEEZIE_ITALIA:
         try:
-            r = requests.get(url, headers=HEADERS, timeout=10)
+            print(f"📋 Controllo lista: {url}")
+            r = requests.get(url, headers=HEADERS, timeout=8)
             if r.status_code == 200:
                 trovati = re.findall(r'(https?://[^\s,\"\']+)', r.text)
+                vecchio_totale = len(siti_potenziali)
                 for l in trovati:
                     dom = estrai_e_pulisci(l)
                     if dom: siti_potenziali.add(dom)
-        except: pass
+                print(f"   -> Trovati {len(siti_potenziali) - vecchio_totale} potenziali link in questa lista.")
+            else:
+                print(f"   -> Errore {r.status_code}: questa lista non ha risposto.")
+        except Exception as e:
+            print(f"   -> Impossibile scaricare questa lista (Timeout/Offline).")
 
-    # FASE 2: Scansione dei motori di ricerca per i domini nuovissimi
+    print(f"\n🔍 FINE FASE 1: Raccolti {len(siti_potenziali)} domini unici dalle liste.")
+    print("\n🕵️‍♂️ FASE 2: Interrogazione motori di ricerca per domini 2026...")
+    
     for q in CHIAVI_RICERCA:
         query_formattata = q.replace(' ', '+')
+        print(f"🔎 Cerco sul web: '{q}'")
         
         # Mojeek
         try:
-            r = requests.get(f"https://www.mojeek.com/search?q={query_formattata}", headers=HEADERS, timeout=10)
+            r = requests.get(f"https://www.mojeek.com/search?q={query_formattata}", headers=HEADERS, timeout=8)
             if r.status_code == 200:
                 soup = BeautifulSoup(r.text, 'html.parser')
-                for a in soup.find_all('a', href=True, class_="ob"):
+                links_trovati = soup.find_all('a', href=True, class_="ob")
+                print(f"   [Mojeek] Risposta OK. Link grezzi trovati: {len(links_trovati)}")
+                for a in links_trovati:
                     dom = estrai_e_pulisci(a['href'])
                     if dom: siti_potenziali.add(dom)
-        except: pass
+            else:
+                print(f"   [Mojeek] Bloccato o Errore con codice {r.status_code}")
+        except:
+            print("   [Mojeek] Timeout o errore di rete.")
         time.sleep(1.5)
 
         # DuckDuckGo
         try:
-            r = requests.get(f"https://html.duckduckgo.com/html/?q={query_formattata}", headers=HEADERS, timeout=10)
+            r = requests.get(f"https://html.duckduckgo.com/html/?q={query_formattata}", headers=HEADERS, timeout=8)
             if r.status_code == 200:
                 soup = BeautifulSoup(r.text, 'html.parser')
-                for a in soup.find_all('a', href=True):
+                links_trovati = soup.find_all('a', href=True)
+                print(f"   [DuckDuckGo] Risposta OK. Analizzo i risultati...")
+                for a in links_trovati:
                     m = re.search(r'uddg=(https?://[^&]+)', a['href'])
                     if m:
                         dom = estrai_e_pulisci(requests.utils.unquote(m.group(1)))
                         if dom: siti_potenziali.add(dom)
-        except: pass
+            else:
+                print(f"   [DuckDuckGo] Bloccato o Errore con codice {r.status_code}")
+        except:
+            print("   [DuckDuckGo] Timeout o errore di rete.")
         time.sleep(1.5)
 
-    # FASE 3: Ispezione profonda simultanea in parallelo (Multithreading accelerato a 15 canali)
+    print(f"\n📊 FINE FASE 2: Totale domini lordi da verificare: {len(siti_potenziali)}")
+    if len(siti_potenziali) == 0:
+        print("⚠️ ATTENZIONE: Nessun dominio trovato nelle prime due fasi. Il file finale sarà vuoto!")
+        return siti_certificati_cinema
+
+    print("\n🧬 FASE 3: Verifica profonda dei player video (Multithreading)...")
     with ThreadPoolExecutor(max_workers=15) as executor:
         futures = {executor.submit(ispeziona_sito_per_video, sito): sito for sito in siti_potenziali}
         for future in as_completed(futures):
@@ -133,8 +160,14 @@ def giga_scanner_totale():
     return siti_certificati_cinema
 
 if __name__ == "__main__":
+    print("🐺 LUPOBOT: Avvio della scansione dei canali Veezie... 🐺")
     risultati_finali = giga_scanner_totale()
+    
+    print(f"\n🏆 SCANSIONE COMPLETATA! Canali totali validati e funzionanti: {len(risultati_finali)}")
+    
+    print("💾 Scrittura del file lista_del_lupo.txt in corso...")
     with open("lista_del_lupo.txt", "w", encoding="utf-8") as f:
         for s in risultati_finali:
             f.write(s + "\n")
-            
+    print("🌟 Fatto! File aggiornato pronto per essere salvato su GitHub.")
+    
