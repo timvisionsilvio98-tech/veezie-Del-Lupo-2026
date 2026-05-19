@@ -17,7 +17,16 @@ CHIAVI = [
     "il genio dello streaming nuovo dominio"
 ]
 
-VIETATI = ["netflix", "primevideo", "disneyplus", "raiplay", "mediaset", "wikipedia", "google", "youtube", "facebook", "instagram", "twitter", "tiktok", "amazon", "apple", "github", "linkedin", "mymovies", "movieplayer", "comingsoon", "imdb"]
+# Filtro potenziato per eliminare blog, notizie e motori di ricerca inutili per Veezie
+VIETATI = [
+    "netflix", "primevideo", "disneyplus", "raiplay", "mediaset", "wikipedia", 
+    "google", "youtube", "facebook", "instagram", "twitter", "tiktok", "amazon", 
+    "apple", "github", "linkedin", "pinterest", "mymovies", "movieplayer", 
+    "comingsoon", "imdb", "yahoo", "bing", "aranzulla", "computermagazine", 
+    "telefonino", "webnews", "informarea", "giardiniblog", "infodrones", 
+    "infotelematico", "soluzionecomputer", "chiccheinformatiche", "weareblog",
+    "outofbit", "tuttotek", "breakingsocial", "lamenteemeravigliosa", "mojeek"
+]
 
 def estrai_dominio(link):
     if link and link.startswith("http"):
@@ -29,7 +38,7 @@ def estrai_dominio(link):
 def cerca_multi_provider():
     siti = set()
     
-    # Canali storici di riserva sempre inclusi
+    # I pilastri fondamentali dello streaming in Italia inseriti di base
     riserva = [
         "https://tantifilm.com", 
         "https://altadefinizione.tours", 
@@ -43,7 +52,7 @@ def cerca_multi_provider():
     for q in CHIAVI:
         query_formattata = q.replace(' ', '+')
         
-        # --- PROVIDER 1: MOJEEK ---
+        # PROVIDER 1: MOJEEK
         try:
             r = requests.get(f"https://www.mojeek.com/search?q={query_formattata}", headers=HEADERS, timeout=10)
             if r.status_code == 200:
@@ -52,14 +61,11 @@ def cerca_multi_provider():
                     d = estrai_dominio(a['href'])
                     if d: siti.add(d)
         except: pass
-        time.sleep(2)
+        time.sleep(1.5)
 
-        # --- PROVIDER 2: DUCKDUCKGO LITE ---
+        # PROVIDER 2: DUCKDUCKGO LITE / HTML
         try:
-            r = requests.get(f"https://lite.duckduckgo.com/lite/", data={"q": q}, headers=HEADERS, timeout=10, method="POST" if "method" in dir(requests) else "GET")
-            # Se la POST diretta ha problemi, proviamo in GET classica
-            if r.status_code != 200:
-                r = requests.get(f"https://html.duckduckgo.com/html/?q={query_formattata}", headers=HEADERS, timeout=10)
+            r = requests.get(f"https://html.duckduckgo.com/html/?q={query_formattata}", headers=HEADERS, timeout=10)
             if r.status_code == 200:
                 soup = BeautifulSoup(r.text, 'html.parser')
                 for a in soup.find_all('a', href=True):
@@ -68,9 +74,9 @@ def cerca_multi_provider():
                         d = estrai_dominio(requests.utils.unquote(m.group(1)))
                         if d: siti.add(d)
         except: pass
-        time.sleep(2)
+        time.sleep(1.5)
 
-        # --- PROVIDER 3: YAHOO ---
+        # PROVIDER 3: YAHOO
         try:
             r = requests.get(f"https://it.search.yahoo.com/search?p={query_formattata}", headers=HEADERS, timeout=10)
             if r.status_code == 200:
@@ -84,7 +90,7 @@ def cerca_multi_provider():
                     d = estrai_dominio(link)
                     if d: siti.add(d)
         except: pass
-        time.sleep(2)
+        time.sleep(1.5)
 
     return siti
 
